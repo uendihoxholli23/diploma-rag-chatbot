@@ -101,7 +101,7 @@ print("✅ Vector database successfully updated and saved locally.")
 query = "What was the total volume of passengers at TIA in August 2025 and which month was the absolute lowest?"
 print(f"\n🔍 Querying RAG System: '{query}'")
 
-os.environ["GROQ_API_KEY"] = "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"
+os.environ["GROQ_API_KEY"] = os.environ.get("GROQ_API_KEY", "")
 llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
 
 # We update the prompt to enforce strict data inspection rules
