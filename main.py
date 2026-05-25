@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -13,12 +14,21 @@ st.title("✈️ Tirana International Airport Peak Season Assistant")
 st.write("Ask questions about monthly passenger distribution, peak tourist flows, and airline statistics for 2025.")
 st.markdown("---")
 
+# --- INITIALIZE ENVIRONMENT VARIABLES ---
+# Safely loads variables from your local .env file when testing locally
+load_dotenv()
+
 # --- AUTO-FETCH SECRET API KEY ---
-# Reads securely from the background secrets panel you configured on Streamlit Cloud
-if "GROQ_API_KEY" in st.secrets:
-    api_key = st.secrets["GROQ_API_KEY"]
-else:
-    api_key = os.environ.get("GROQ_API_KEY", "")
+# Uses a try/except pattern so it doesn't crash on local setups missing st.secrets
+api_key = os.environ.get("GROQ_API_KEY", "")
+
+if not api_key:
+    try:
+        if "GROQ_API_KEY" in st.secrets:
+            api_key = st.secrets["GROQ_API_KEY"]
+    except Exception:
+        # Fails silently in local development context
+        pass
 
 # --- SIDEBAR ---
 with st.sidebar:
@@ -47,10 +57,11 @@ def load_rag_system():
     system_prompt = (
         "You are an expert aviation data analyst specialized in Tirana International Airport (TIA) passenger traffic statistics.\n\n"
         "CRITICAL ANALYSIS & LOGIC RULES:\n"
-        "1. For any monthly totals or airport-wide traffic summaries, look ONLY at the context string beginning with 'Summary Category: TOTAL'. Never add individual airline numbers to this row, as it already includes all flights.\n"
-        "2. To find the absolute lowest or highest month, carefully review all 12 listed values inside the TOTAL category chunk and compare them as actual numbers, not as text strings. (Note: 632k in Feb is less than 765k in Nov).\n"
+        "1. For any monthly totals or airport-wide traffic summaries, look ONLY at the context string beginning with 'Summary Category: TOTAL' or 'Overall Air Traffic Summary Category: TOTAL'. Never add individual airline numbers to this row, as it already includes all flights.\n"
+        "2. To find the absolute lowest or highest month, carefully review all 12 listed values inside the TOTAL category chunk and compare them as actual numbers, not as text strings.\n"
         "3. Ignore summary rows like 'Shuma', 'CHARTER', or 'TOTAL' when ranking individual airlines or finding the top carrier.\n"
-        "4. Base your answers strictly and exclusively on the context statistics provided below. Do not guess or speculate.\n\n"
+        "4. Base your answers strictly and exclusively on the context statistics provided below. Do not guess or speculate.\n"
+        "5. RESPONSE FORMATTING CONSTRAINT: Never list out individual airlines one by one using 'and' clauses repeatedly. Provide a direct, concise summary of the data requested. If you find yourself repeating the same data point, stop generating immediately.\n\n"
         "Context:\n{context}"
     )
     prompt = ChatPromptTemplate.from_messages([
@@ -79,10 +90,10 @@ if os.path.exists("faiss_tia_index"):
         with st.spinner("Retrieving high-density flight logs and computing trends..."):
             try:
                 llm = ChatGroq(groq_api_key=api_key, model="llama-3.1-8b-instant", temperature=0)
-                qa_chain = create_stuff_documents_chain(llm, prompt)
+                question_answer_chain = create_stuff_documents_chain(llm, prompt)
                 
                 # Using the compact k=45 parameter to prevent Groq API crashes
-                rag_chain = create_retrieval_chain(vector_db.as_retriever(search_kwargs={"k": 45}), qa_chain)
+                rag_chain = create_retrieval_chain(vector_db.as_retriever(search_kwargs={"k": 45}), question_answer_chain)
                 
                 response = rag_chain.invoke({"input": query})
                 answer = response["answer"]

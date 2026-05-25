@@ -1,6 +1,5 @@
 import os
 import pandas as pd
-from dotenv import load_dotenv
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -9,12 +8,6 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_classic.chains import create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
-
-# =====================================================================
-# 0. INITIALIZE ENVIRONMENT VARIABLES (Local Configuration Setup)
-# =====================================================================
-# This securely reads the saved GROQ_API_KEY from your local .env file
-load_dotenv()
 
 # =====================================================================
 # 1. LOAD AND PARSE THE REAL TIA PASSENGER CSV DATASET (Robust Index-Based Fix)
@@ -46,13 +39,13 @@ for idx, row in df.iterrows():
     total_pax = str(row.iloc[-2]).strip() # 2nd to last column: TOTAL Pax
     share = str(row.iloc[-1]).strip()     # Very last column: Market Share %
     
-    # High-density compact format to drastically save token room for Groq Limits
+    # CHANGED: High-density compact format to drastically save token room for Groq Limits
     if operator in ['Shuma', 'CHARTER', 'TOTAL']:
         text_summary = f"Summary Category: {operator} | 2025 Total: {total_pax} pax | Share: {share}."
     else:
         text_summary = f"Airline: {operator} | 2025 Total: {total_pax} pax | Share: {share}."
     
-    # Abbreviated months to scale back context length safely
+    # CHANGED: Abbreviated months to scale back context length safely
     english_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     
     monthly_details = []
@@ -98,7 +91,7 @@ embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 print("Building FAISS index...")
 vector_db = FAISS.from_documents(chunks, embeddings)
 
-# Using your clean local storage location
+# CHANGED: Using your clean, renamed local storage location
 vector_db.save_local("faiss_tia_index") 
 print("✅ Vector database successfully updated and saved locally.")
 
@@ -108,28 +101,29 @@ print("✅ Vector database successfully updated and saved locally.")
 query = "What was the total volume of passengers at TIA in August 2025 and which month was the absolute lowest?"
 print(f"\n🔍 Querying RAG System: '{query}'")
 
-api_key = os.environ.get("GROQ_API_KEY", "")
-llm = ChatGroq(groq_api_key=api_key, model="llama-3.1-8b-instant", temperature=0)
+os.environ["GROQ_API_KEY"] = os.environ.get("GROQ_API_KEY", "")
+llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
 
 # We update the prompt to enforce strict data inspection rules
 system_prompt = (
-    "You are an expert aviation data analyst specialized in Tirana International Airport (TIA) passenger traffic statistics.\n\n"
-    "CRITICAL ANALYSIS & LOGIC RULES:\n"
-    "1. For any monthly totals or airport-wide traffic summaries, look ONLY at the context chunk that contains 'Summary Category: TOTAL' or 'Overall Air Traffic Summary Category: TOTAL'. Never add individual airline numbers together, as the TOTAL row already contains the pre-calculated sums.\n"
-    "2. To find the absolute lowest or highest month of the year, look directly at the 12 months listed inside that TOTAL summary chunk and compare them mathematically. Do not pick a single month from an individual airline.\n"
-    "3. Ignore summary rows like 'Shuma', 'CHARTER', or 'TOTAL' when ranking individual airlines or finding the top carrier.\n"
-    "4. Base your answers strictly and exclusively on the context statistics provided below. If a number is written in the context, use it directly. Do not guess or speculate.\n\n"
+    "You are an expert aviation data analyst specialized in Tirana International Airport (TIA) passenger traffic statistics. "
+    "Your task is to answer user queries with absolute numerical precision based on the provided context.\n\n"
+    "CRITICAL RULES:\n"
+    "1. When asked for airport-wide totals or specific months, look strictly at the 'Summary Category: TOTAL' data chunk.\n"
+    "2. To find the absolute lowest or highest month, carefully review all 12 listed values inside the TOTAL category chunk "
+    "and compare them as actual numbers, not as text strings. (Note: 632k in Feb is less than 765k in Nov).\n"
+    "3. Be direct, professional, and present the exact numbers from the context.\n\n"
     "Context:\n{context}"
 )
+
 prompt = ChatPromptTemplate.from_messages([
     ("system", system_prompt),
     ("human", "{input}"),
 ])
 
-# FIXED: Build the parsing chain using correct semantic variable linkage
 question_answer_chain = create_stuff_documents_chain(llm, prompt)
 
-# Setting k=45 works flawlessly here to pull all your compact data elements without crossing the 6000 TPM limit
+# CHANGED: Setting k=45 works flawlessly here to pull all your compact data elements without crossing the 6000 TPM limit
 rag_chain = create_retrieval_chain(vector_db.as_retriever(search_kwargs={"k": 45}), question_answer_chain)
 
 response = rag_chain.invoke({"input": query})
