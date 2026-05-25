@@ -7,3 +7,4 @@ faiss-cpu
 langchain-classic
 langchain-core
 sentence-transformers
+torchvision
